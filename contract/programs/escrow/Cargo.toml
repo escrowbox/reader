@@ -1,0 +1,37 @@
+[package]
+name = "escrow"
+version = "0.1.0"
+description = "Native Solana Escrow Program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "escrow"
+
+[features]
+default = []
+no-entrypoint = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+solana-program = "3.0.0"
+borsh = "1.5.1"
+spl-token = { version = "9.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "8.0", features = ["no-entrypoint"] }
+
+[profile.release]
+overflow-checks = false
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+strip = true
+
+[profile.release.build-override]
+opt-level = 3
+
+[profile.release.package."*"]
+opt-level = "z"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
