@@ -1,24 +1,26 @@
 package com.example.walletconnect.ui.screens
 
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -27,7 +29,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -40,14 +45,42 @@ import com.example.walletconnect.epub.PaginationResult
 import com.example.walletconnect.sensors.MotionDetector
 import com.example.walletconnect.utils.TimerContractStore
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.flow.collectLatest
 import java.io.File
 import kotlin.math.roundToInt
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 
 val ReaderTextStyle = TextStyle(
     fontSize = 18.sp,
     lineHeight = 28.sp,
-    color = Color.Unspecified  // Позволяет стилям из AnnotatedString иметь приоритет
+    color = Color.Unspecified,
+    hyphens = Hyphens.Auto,
+    lineBreak = LineBreak.Paragraph,
+    textAlign = TextAlign.Justify
 )
+
+// ─── Design tokens (matching CreateContractScreen palette) ────────────────────
+private val RdrBgTop      = Color(0xFFF6F9FE)
+private val RdrBgMid      = Color(0xFFEEF3FB)
+private val RdrBgBot      = Color(0xFFE6EDF8)
+private val RdrSurface    = Color(0xFFEDF1F8)
+private val RdrBorderLo   = Color(0xFFBDCADB)
+private val RdrBorderHi   = Color(0xFFF4F7FC)
+private val RdrNavy       = Color(0xFF2D3A4F)
+private val RdrNavyDark   = Color(0xFF1E2D3D)
+private val RdrNavyMid    = Color(0xFF3D5166)
+private val RdrTextLo     = Color(0xFF8896A8)
+private val RdrBgBrush    = Brush.verticalGradient(listOf(RdrBgTop, RdrBgMid, RdrBgBot))
+private val RdrAccentBrush = Brush.linearGradient(listOf(RdrNavyDark, RdrNavyMid))
+private val RdrBorderBrush = Brush.linearGradient(listOf(RdrBorderHi, RdrBorderLo))
+private val ShadowAmbient = Color(0x22000000)
+private val ShadowSpot    = Color(0x2E000000)
 
 /**
  * Получает состояние движения из MotionDetector
@@ -173,25 +206,27 @@ fun EpubReaderScreen(
         } else if (uiState.error != null) {
             ErrorScreen(error = uiState.error!!, onBack = onBack)
         } else if (uiState.paginationResult != null) {
+            val readerStyle = remember(uiState.bookLanguage) {
+                ReaderTextStyle.copy(
+                    localeList = uiState.bookLanguage?.let { LocaleList(it) }
+                )
+            }
+
             PageContent(
                 paginationResult = uiState.paginationResult!!,
                 currentPage = uiState.currentPage,
                 totalPages = uiState.totalPages,
-                onNextPage = { 
-                    viewModel.onSwipeDetected()
-                    viewModel.nextPage(context) 
-                },
-                onPreviousPage = { 
-                    viewModel.onSwipeDetected()
-                    viewModel.previousPage(context) 
-                },
+                textStyle = readerStyle,
+                onSwipeDetected = { viewModel.onSwipeDetected() },
                 onGoToPage = { viewModel.goToPage(context, it) },
                 onCheckpointClick = { checkpointIndex ->
-                    viewModel.onCheckpointFound(context, checkpointIndex, textMeasurer, ReaderTextStyle)
+                    viewModel.onCheckpointFound(context, checkpointIndex, textMeasurer, readerStyle)
                 },
                 onBack = onBack,
                 remainingSeconds = remainingSeconds,
-                motionState = if (hasHandControl) motionState else null
+                motionState = if (hasHandControl) motionState else null,
+                checkpointIndices = viewModel.checkpointIndicesState,
+                foundCheckpointIndices = viewModel.foundCheckpointIndicesState
             )
         }
     }
@@ -208,7 +243,8 @@ fun LoadingScreen(onPageSizeChanged: (Float, Float) -> Unit) {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 0.dp)  // так же как в PageContent
+                .windowInsetsPadding(WindowInsets.displayCutout)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 0.dp)  // так же как в PageContent
                 .onGloballyPositioned { coords ->
                     onPageSizeChanged(coords.size.width.toFloat(), coords.size.height.toFloat())
                 },
@@ -237,7 +273,7 @@ fun ErrorScreen(error: String, onBack: () -> Unit) {
             Text(text = error, color = Color.Red, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = onBack) {
-                Text("Назад")
+                Text("back")
             }
         }
     }
@@ -303,25 +339,61 @@ private fun highlightCheckpoints(
 }
 
 /**
- * Контент страницы книги: текст, жесты перелистывания и навигационный слайдер.
- * Также обрабатывает клики по чекпоинтам (аннотация tag = "checkpoint").
+ * Контент страницы книги: HorizontalPager для плавного перелистывания,
+ * обработка кликов по чекпоинтам и навигационный слайдер.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun PageContent(
     paginationResult: PaginationResult,
     currentPage: Int,
     totalPages: Int,
-    onNextPage: () -> Unit,
-    onPreviousPage: () -> Unit,
+    textStyle: TextStyle = ReaderTextStyle,
+    onSwipeDetected: () -> Unit,
     onGoToPage: (Int) -> Unit,
     onCheckpointClick: (Int) -> Unit,
     onBack: () -> Unit,
     remainingSeconds: Long? = null,
-    motionState: MotionDetector.MotionState? = null
+    motionState: MotionDetector.MotionState? = null,
+    checkpointIndices: List<Int> = emptyList(),
+    foundCheckpointIndices: Set<Int> = emptySet()
 ) {
     var showSlider by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(currentPage.toFloat()) }
-    var dragHandled by remember { mutableStateOf(false) }
+
+    val safePageCount = totalPages.coerceAtLeast(1)
+
+    val pagerState = rememberPagerState(
+        initialPage = currentPage.coerceIn(0, (safePageCount - 1).coerceAtLeast(0)),
+        pageCount = { safePageCount }
+    )
+
+    // Tracks the last page set externally (slider, ViewModel) to distinguish from user swipes
+    var lastExternalPage by remember { mutableIntStateOf(currentPage) }
+
+    // Sync ViewModel -> Pager: when currentPage changes externally (slider, repagination)
+    LaunchedEffect(currentPage, safePageCount) {
+        val targetPage = currentPage.coerceIn(0, (safePageCount - 1).coerceAtLeast(0))
+        lastExternalPage = targetPage
+        if (pagerState.currentPage != targetPage) {
+            if (kotlin.math.abs(pagerState.currentPage - targetPage) > 5) {
+                pagerState.scrollToPage(targetPage)
+            } else {
+                pagerState.animateScrollToPage(targetPage)
+            }
+        }
+    }
+
+    // Sync Pager -> ViewModel: detect user swipe completion
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collectLatest { settledPage ->
+            if (settledPage != lastExternalPage) {
+                lastExternalPage = settledPage
+                onSwipeDetected()
+                onGoToPage(settledPage)
+            }
+        }
+    }
 
     LaunchedEffect(currentPage) {
         sliderValue = currentPage.toFloat()
@@ -335,80 +407,73 @@ fun PageContent(
             }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Box(
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 0.dp)  // уменьшен bottom
-                    .pointerInput(Unit) {
-                        var dragStart = Offset.Zero
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragStart = it },
-                            onDragEnd = { dragHandled = false }
-                        ) { change, _ ->
-                            if (!dragHandled) {
-                                val totalDrag = change.position.x - dragStart.x
-                                if (totalDrag > 100) {
-                                    onPreviousPage()
-                                    dragHandled = true
-                                } else if (totalDrag < -100) {
-                                    onNextPage()
-                                    dragHandled = true
+                    .fillMaxWidth(),
+                beyondViewportPageCount = 1,
+                key = { it }
+            ) { pageIndex ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 0.dp)
+                ) {
+                    if (pageIndex < paginationResult.pages.size) {
+                        val pageSlice = paginationResult.pages[pageIndex]
+
+                        val annotatedText = remember(
+                            pageSlice.startIndex,
+                            pageSlice.endIndex,
+                            paginationResult.fullText
+                        ) {
+                            highlightCheckpoints(
+                                fullText = paginationResult.fullText,
+                                startIndex = pageSlice.startIndex,
+                                endIndex = pageSlice.endIndex
+                            )
+                        }
+
+                        ClickableText(
+                            text = annotatedText,
+                            style = textStyle,
+                            modifier = Modifier.fillMaxSize(),
+                            onClick = { offset ->
+                                val annotations = annotatedText.getStringAnnotations(
+                                    tag = "checkpoint",
+                                    start = offset,
+                                    end = offset
+                                )
+                                if (annotations.isNotEmpty()) {
+                                    val checkpointIndex =
+                                        annotations.first().item.toIntOrNull()
+                                    if (checkpointIndex != null) {
+                                        onCheckpointClick(checkpointIndex)
+                                    }
+                                } else {
+                                    showSlider = !showSlider
                                 }
                             }
-                            change.consume()
-                        }
-                    }
-            ) {
-                if (currentPage < paginationResult.pages.size) {
-                    val pageSlice = paginationResult.pages[currentPage]
-                    
-                    // Подсвечиваем чекпоинты красным цветом
-                    val annotatedText = remember(pageSlice.startIndex, pageSlice.endIndex, paginationResult.fullText) {
-                        highlightCheckpoints(
-                            fullText = paginationResult.fullText,
-                            startIndex = pageSlice.startIndex,
-                            endIndex = pageSlice.endIndex
                         )
                     }
-                    
-                    ClickableText(
-                        text = annotatedText,
-                        style = ReaderTextStyle,
-                        modifier = Modifier.fillMaxSize(),
-                        onClick = { offset ->
-                            val annotations = annotatedText.getStringAnnotations(
-                                tag = "checkpoint",
-                                start = offset,
-                                end = offset
-                            )
-                            if (annotations.isNotEmpty()) {
-                                // Клик по чекпоинту - помечаем его как найденный
-                                val checkpointIndex = annotations.first().item.toIntOrNull()
-                                if (checkpointIndex != null) {
-                                    onCheckpointClick(checkpointIndex)
-                                }
-                            } else {
-                                // Клик по обычному тексту - показываем/скрываем слайдер
-                                showSlider = !showSlider
-                            }
-                        }
-                    )
                 }
             }
 
-            // Progress bar
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 0.dp)) {
+            // Progress bar — uses the pager's settled page for smooth tracking
+            val displayPage = pagerState.settledPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 Text(
-                    text = "${currentPage + 1}/$totalPages",
+                    text = "${displayPage + 1}/$totalPages",
                     modifier = Modifier.align(Alignment.End),
                     style = TextStyle(fontSize = 10.sp, color = Color.Gray)
                 )
                 LinearProgressIndicator(
-                    progress = if (totalPages > 0) (currentPage + 1).toFloat() / totalPages else 0f,
+                    progress = { if (totalPages > 0) (displayPage + 1).toFloat() / totalPages else 0f },
                     modifier = Modifier.fillMaxWidth().height(2.dp),
                     color = Color.Gray,
-                    trackColor = Color.LightGray.copy(alpha = 0.3f)
+                    trackColor = Color.LightGray.copy(alpha = 0.3f),
                 )
             }
         }
@@ -420,15 +485,29 @@ fun PageContent(
             enter = slideInVertically { -it },
             exit = slideOutVertically { -it }
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 4.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 6.dp,
+                        shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
+                        clip = false,
+                        ambientColor = ShadowAmbient,
+                        spotColor = ShadowSpot
+                    )
+                    .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+                    .background(RdrBgBrush)
+                    .border(
+                        width = 1.dp,
+                        brush = RdrBorderBrush,
+                        shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+                    )
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -439,37 +518,64 @@ fun PageContent(
                             showSlider = false
                             onBack()
                         }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back")
                         }
-                        Text(text = "Назад")
+                        Text(text = "back")
                     }
                     
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Индикатор состояния движения (hand control)
-                        motionState?.let { state ->
-                            Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = when (state) {
-                                    MotionDetector.MotionState.STATIONARY -> Color(0xFF4CAF50)
-                                    MotionDetector.MotionState.MOVING -> Color(0xFFFF9800)
-                                }
+                        if (checkpointIndices.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = when (state) {
-                                        MotionDetector.MotionState.STATIONARY -> "STATIONARY"
-                                        MotionDetector.MotionState.MOVING -> "MOVING"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                checkpointIndices.forEach { index ->
+                                    val found = index in foundCheckpointIndices
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .shadow(
+                                                elevation = if (found) 4.dp else 2.dp,
+                                                shape = CircleShape,
+                                                ambientColor = ShadowAmbient,
+                                                spotColor = ShadowSpot
+                                            )
+                                            .background(
+                                                if (found) Color(0xFF16A34A) else RdrSurface,
+                                                CircleShape
+                                            )
+                                            .border(
+                                                1.5.dp,
+                                                if (found) Color(0xFF16A34A) else RdrBorderLo,
+                                                CircleShape
+                                            )
+                                    )
+                                }
                             }
                         }
+
+                        motionState?.let { state ->
+                            val assetContext = LocalContext.current
+                            val motionIcon = remember(state) {
+                                val path = when (state) {
+                                    MotionDetector.MotionState.STATIONARY -> "icons/stationary.png"
+                                    MotionDetector.MotionState.MOVING -> "icons/moving.png"
+                                }
+                                BitmapFactory.decodeStream(assetContext.assets.open(path))
+                            }
+                            Image(
+                                bitmap = motionIcon.asImageBitmap(),
+                                contentDescription = when (state) {
+                                    MotionDetector.MotionState.STATIONARY -> "stationary"
+                                    MotionDetector.MotionState.MOVING -> "moving"
+                                },
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                         
-                        // Таймер для timer контрактов
                         remainingSeconds?.let { seconds ->
                             if (seconds >= 0) {
                                 val hours = seconds / 3600
@@ -495,17 +601,54 @@ fun PageContent(
             enter = slideInVertically { it },
             exit = slideOutVertically { it }
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 4.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "${sliderValue.roundToInt() + 1} / $totalPages",
-                        modifier = Modifier.align(Alignment.End),
-                        style = TextStyle(fontSize = 10.sp, color = Color.Gray)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                        clip = false,
+                        ambientColor = ShadowAmbient,
+                        spotColor = ShadowSpot
                     )
+                    .background(
+                        RdrBgBrush,
+                        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = RdrBorderBrush,
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    )
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        start = 20.dp, end = 20.dp, top = 14.dp, bottom = 20.dp
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "PAGE",
+                            style = TextStyle(
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 2.sp,
+                                color = RdrNavy
+                            )
+                        )
+                        Text(
+                            text = "${sliderValue.roundToInt() + 1}  /  $totalPages",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = RdrTextLo
+                            )
+                        )
+                    }
                     Slider(
                         value = sliderValue,
                         onValueChange = { sliderValue = it },
@@ -513,7 +656,22 @@ fun PageContent(
                             onGoToPage(sliderValue.roundToInt())
                             showSlider = false
                         },
-                        valueRange = 0f..(totalPages - 1).coerceAtLeast(0).toFloat()
+                        valueRange = 0f..(totalPages - 1).coerceAtLeast(0).toFloat(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = RdrNavy,
+                            activeTrackColor = RdrNavy,
+                            inactiveTrackColor = RdrBorderLo,
+                            activeTickColor = Color.Transparent,
+                            inactiveTickColor = Color.Transparent
+                        ),
+                        thumb = {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .shadow(6.dp, CircleShape, ambientColor = ShadowAmbient, spotColor = ShadowSpot)
+                                    .background(RdrAccentBrush, CircleShape)
+                            )
+                        }
                     )
                 }
             }

@@ -18,6 +18,8 @@ object BoxMetadataStore {
     private const val KEY_IS_TOKEN = "box_is_token" // flag for token vs SOL boxes
     private const val KEY_DECIMALS = "box_decimals" // decimals for token boxes
     private const val KEY_SYMBOLS = "box_symbols"   // symbol for token boxes
+    private const val KEY_FILE_TYPES = "box_file_types" // "epub" or "pdf"
+    private const val KEY_BOOK_TITLES = "box_book_titles"
     
     /**
      * Метаданные бокса
@@ -372,6 +374,54 @@ object BoxMetadataStore {
         }
     }
     
+    fun setFileType(context: Context, boxId: String, fileType: String) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_FILE_TYPES, "{}") ?: "{}"
+            val obj = JSONObject(json)
+            obj.put(boxId, fileType)
+            prefs.edit().putString(KEY_FILE_TYPES, obj.toString()).apply()
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting file type for box $boxId")
+        }
+    }
+
+    fun getFileType(context: Context, boxId: String): String {
+        return try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_FILE_TYPES, "{}") ?: "{}"
+            val obj = JSONObject(json)
+            if (obj.has(boxId)) obj.getString(boxId) else "epub"
+        } catch (e: Exception) {
+            Timber.e(e, "Error getting file type for box $boxId")
+            "epub"
+        }
+    }
+
+    fun setBookTitle(context: Context, boxId: String, title: String) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_BOOK_TITLES, "{}") ?: "{}"
+            val obj = JSONObject(json)
+            obj.put(boxId, title)
+            prefs.edit().putString(KEY_BOOK_TITLES, obj.toString()).apply()
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting book title for box $boxId")
+        }
+    }
+
+    fun getBookTitle(context: Context, boxId: String): String? {
+        return try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_BOOK_TITLES, "{}") ?: "{}"
+            val obj = JSONObject(json)
+            if (obj.has(boxId)) obj.getString(boxId) else null
+        } catch (e: Exception) {
+            Timber.e(e, "Error getting book title for box $boxId")
+            null
+        }
+    }
+
     /**
      * Удаляет бокс из хранилища
      */
@@ -420,6 +470,16 @@ object BoxMetadataStore {
             val symbolsJson = prefs.getString(KEY_SYMBOLS, "{}") ?: "{}"
             val symbolsObj = JSONObject(symbolsJson)
             symbolsObj.remove(boxId)
+
+            // Удаляем file type
+            val fileTypesJson = prefs.getString(KEY_FILE_TYPES, "{}") ?: "{}"
+            val fileTypesObj = JSONObject(fileTypesJson)
+            fileTypesObj.remove(boxId)
+
+            // Удаляем book title
+            val titlesJson = prefs.getString(KEY_BOOK_TITLES, "{}") ?: "{}"
+            val titlesObj = JSONObject(titlesJson)
+            titlesObj.remove(boxId)
             
             prefs.edit()
                 .putString(KEY_ORDER, newOrderArray.toString())
@@ -429,6 +489,8 @@ object BoxMetadataStore {
                 .putString(KEY_IS_TOKEN, isTokenObj.toString())
                 .putString(KEY_DECIMALS, decimalsObj.toString())
                 .putString(KEY_SYMBOLS, symbolsObj.toString())
+                .putString(KEY_FILE_TYPES, fileTypesObj.toString())
+                .putString(KEY_BOOK_TITLES, titlesObj.toString())
                 .apply()
             
             Timber.d("📦 Удален бокс из хранилища: $boxId")

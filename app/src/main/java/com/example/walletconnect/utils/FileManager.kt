@@ -11,59 +11,61 @@ import java.io.FileOutputStream
  * Файлы в этом хранилище недоступны другим приложениям и пользователю через проводник.
  */
 object FileManager {
-    private const val EPUB_DIR = "epubs"
+    private const val BOOKS_DIR = "epubs"
 
-    /**
-     * Копирует файл из Uri (внешний источник) в приватную папку приложения.
-     * Файл привязывается к конкретному boxId.
-     * 
-     * @return абсолютный путь к сохраненному файлу или null в случае ошибки.
-     */
+    private fun booksDir(context: Context): File {
+        val dir = File(context.filesDir, BOOKS_DIR)
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
     fun saveEpubFile(context: Context, uri: Uri, boxId: String): String? {
-        return try {
-            // Создаем директорию для книг, если её нет
-            val directory = File(context.filesDir, EPUB_DIR)
-            if (!directory.exists()) {
-                val created = directory.mkdirs()
-                if (!created && !directory.exists()) {
-                    Timber.e("❌ Не удалось создать директорию для EPUB")
-                    return null
-                }
-            }
+        return saveBookFile(context, uri, boxId, "epub")
+    }
 
-            // Формируем уникальное имя файла на основе ID бокса
-            val fileName = "book_${boxId.lowercase()}.epub"
+    fun savePdfFile(context: Context, uri: Uri, boxId: String): String? {
+        return saveBookFile(context, uri, boxId, "pdf")
+    }
+
+    private fun saveBookFile(context: Context, uri: Uri, boxId: String, extension: String): String? {
+        return try {
+            val directory = booksDir(context)
+            val fileName = "book_${boxId.lowercase()}.$extension"
             val destinationFile = File(directory, fileName)
 
-            // Копируем содержимое
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 FileOutputStream(destinationFile).use { outputStream ->
                     inputStream.copyTo(outputStream)
                 }
             }
 
-            // Timber.d("📂 Файл EPUB успешно скопирован в приватное хранилище: ${destinationFile.absolutePath}")
             destinationFile.absolutePath
         } catch (e: Exception) {
-            Timber.e(e, "❌ Ошибка при сохранении EPUB файла во внутреннее хранилище")
+            Timber.e(e, "Error saving $extension file")
             null
         }
     }
 
-    /**
-     * Проверяет наличие и возвращает объект File для конкретного бокса.
-     */
     fun getEpubFile(context: Context, boxId: String): File? {
-        val fileName = "book_${boxId.lowercase()}.epub"
-        val file = File(File(context.filesDir, EPUB_DIR), fileName)
+        val file = File(booksDir(context), "book_${boxId.lowercase()}.epub")
         return if (file.exists()) file else null
     }
 
-    /**
-     * Удаляет файл книги, если контракт более не актуален (опционально).
-     */
+    fun getPdfFile(context: Context, boxId: String): File? {
+        val file = File(booksDir(context), "book_${boxId.lowercase()}.pdf")
+        return if (file.exists()) file else null
+    }
+
+    fun getBookFile(context: Context, boxId: String): File? {
+        return getEpubFile(context, boxId) ?: getPdfFile(context, boxId)
+    }
+
     fun deleteEpubFile(context: Context, boxId: String): Boolean {
         return getEpubFile(context, boxId)?.delete() ?: false
+    }
+
+    fun deletePdfFile(context: Context, boxId: String): Boolean {
+        return getPdfFile(context, boxId)?.delete() ?: false
     }
 }
 

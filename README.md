@@ -1,6 +1,6 @@
 # Escrow reader
 
-Escrow Reader is a Solana dApp that gives reading real meaning.
+Escrow Reader is an aplication that makes reading an interesting activity.
 
 ## How does this work?
 

@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.intl.LocaleList
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.walletconnect.utils.CheckpointIndexStore
@@ -35,12 +38,19 @@ class EpubReaderViewModel : ViewModel() {
     private var cachedElements: List<TextProcessor.TextElement>? = null
     private var lastPageWidth: Float = 0f
     private var lastPageHeight: Float = 0f
+    private var cachedHyphenatedStyle: TextStyle? = null
 
     // Индексы чекпоинтов в общем тексте книги
     private var checkpointIndices: List<Int> = emptyList()
     private var foundCheckpointIndices: MutableSet<Int> = mutableSetOf()
     private var currentBoxId: String = ""
     private var checkpointLabel: String = " [I find checkpoint] "
+
+    // Observable state for UI
+    var checkpointIndicesState by mutableStateOf<List<Int>>(emptyList())
+        private set
+    var foundCheckpointIndicesState by mutableStateOf<Set<Int>>(emptySet())
+        private set
     
     // Защита от множественных сохранений
     private var lastSavedPage: Int = -1
@@ -50,7 +60,7 @@ class EpubReaderViewModel : ViewModel() {
     var remainingSeconds by mutableStateOf<Long?>(null)
         private set
     
-    // Для swipe control
+    // Для flip control
     private var hasSwipeControl = false
     private var lastSwipeTime = System.currentTimeMillis()
     private var isTimerPaused = false
@@ -72,6 +82,8 @@ class EpubReaderViewModel : ViewModel() {
             checkpointIndices = CheckpointIndexStore.getIndices(context, boxId)
             foundCheckpointIndices = CheckpointIndexStore.getFoundIndices(context, boxId).toMutableSet()
             checkpointLabel = CheckpointIndexStore.getCheckpointLabel(context, boxId)
+            checkpointIndicesState = checkpointIndices.toList()
+            foundCheckpointIndicesState = foundCheckpointIndices.toSet()
             
             // Инициализируем таймер для timer контрактов
             val timerParams = TimerContractStore.getTimerParams(context, boxId)
@@ -99,7 +111,7 @@ class EpubReaderViewModel : ViewModel() {
             while (remainingSeconds != null && remainingSeconds!! > 0) {
                 delay(1000) // 1 секунда
                 
-                // Проверяем swipe control - если включен и прошло больше 300 секунд с последнего свайпа, паузируем
+                // Проверяем flip control - если включен и прошло больше 300 секунд с последнего свайпа, паузируем
                 if (hasSwipeControl) {
                     val timeSinceLastSwipe = (System.currentTimeMillis() - lastSwipeTime) / 1000
                     if (timeSinceLastSwipe > 300) {
@@ -126,7 +138,7 @@ class EpubReaderViewModel : ViewModel() {
     }
     
     /**
-     * Уведомляет о свайпе страницы. Используется для swipe control.
+     * Уведомляет о свайпе страницы. Используется для flip control.
      */
     fun onSwipeDetected() {
         if (hasSwipeControl) {
@@ -172,6 +184,17 @@ class EpubReaderViewModel : ViewModel() {
     }
 
     /**
+     * Создаёт TextStyle с hyphenation и локалью книги для корректных переносов по слогам.
+     */
+    fun applyHyphenation(baseStyle: TextStyle, language: String?): TextStyle {
+        return baseStyle.copy(
+            hyphens = Hyphens.Auto,
+            lineBreak = LineBreak.Paragraph,
+            localeList = language?.let { LocaleList(it) }
+        )
+    }
+
+    /**
      * Загружает файл EPUB, преобразует его в элементы текста и выполняет первую пагинацию.
      */
     fun loadEpubFile(
@@ -197,10 +220,13 @@ class EpubReaderViewModel : ViewModel() {
                 lastPageWidth = pageWidth
                 lastPageHeight = pageHeight
 
+                val hyphenatedStyle = applyHyphenation(textStyle, parseResult.language)
+                cachedHyphenatedStyle = hyphenatedStyle
+
                 val paginationResult = paginationEngine.paginate(
                     elements = elements,
                     textMeasurer = textMeasurer,
-                    textStyle = textStyle,
+                    textStyle = hyphenatedStyle,
                     pageWidth = pageWidth,
                     pageHeight = pageHeight,
                     checkpointIndices = checkpointIndices,
@@ -208,11 +234,9 @@ class EpubReaderViewModel : ViewModel() {
                     checkpointLabel = checkpointLabel
                 )
 
-                // Загружаем сохраненную позицию или начинаем с первой страницы
                 val savedPage = if (currentBoxId.isNotEmpty()) {
                     val savedCharIndex = CheckpointIndexStore.getCharIndex(context, currentBoxId)
                     val page = if (savedCharIndex >= 0) {
-                        // Находим страницу по индексу символа
                         val foundPage = paginationResult.pages.indexOfFirst { pageSlice ->
                             savedCharIndex >= pageSlice.startIndex && savedCharIndex < pageSlice.endIndex
                         }
@@ -220,25 +244,22 @@ class EpubReaderViewModel : ViewModel() {
                     } else {
                         0
                     }
-                    // Timber.d("📚 Загрузка книги для бокса $currentBoxId:")
-                    // Timber.d("   - Сохранённый индекс символа: $savedCharIndex")
-                    // Timber.d("   - Найденная страница: $page")
-                    // Timber.d("   - Всего страниц: ${paginationResult.pages.size}")
                     lastSavedPage = page
-                    // Timber.d("   - lastSavedPage установлен: $lastSavedPage")
                     page
                 } else {
-                    // Timber.d("📚 Загрузка книги без boxId, начинаем с первой страницы")
                     lastSavedPage = 0
                     0
                 }
+
+                CheckpointIndexStore.saveTotalPages(context, currentBoxId, paginationResult.pages.size)
 
                 uiState = uiState.copy(
                     isLoading = false,
                     paginationResult = paginationResult,
                     currentPage = savedPage,
                     totalPages = paginationResult.pages.size,
-                    images = imageMap
+                    images = imageMap,
+                    bookLanguage = parseResult.language
                 )
             } catch (e: Exception) {
                 uiState = uiState.copy(
@@ -262,9 +283,6 @@ class EpubReaderViewModel : ViewModel() {
         
         if (!widthChanged && !heightChanged) return
         
-        // Timber.d("🔄 Репагинация: размер изменился с ${lastPageWidth}x${lastPageHeight} на ${pageWidth}x${pageHeight}")
-        // Timber.d("   Текущая страница ДО репагинации: ${uiState.currentPage}")
-        
         lastPageWidth = pageWidth
         lastPageHeight = pageHeight
         
@@ -273,12 +291,12 @@ class EpubReaderViewModel : ViewModel() {
             currentResult.pages[uiState.currentPage].startIndex
         } else 0
         
-        // Timber.d("   Текущий индекс символа: $currentCharIndex")
+        val effectiveStyle = cachedHyphenatedStyle ?: applyHyphenation(textStyle, uiState.bookLanguage)
         
         val paginationResult = paginationEngine.paginate(
             elements = elements,
             textMeasurer = textMeasurer,
-            textStyle = textStyle,
+            textStyle = effectiveStyle,
             pageWidth = pageWidth,
             pageHeight = pageHeight,
             checkpointIndices = checkpointIndices,
@@ -290,17 +308,11 @@ class EpubReaderViewModel : ViewModel() {
             currentCharIndex >= page.startIndex && currentCharIndex < page.endIndex
         }.coerceAtLeast(0)
         
-        // Timber.d("   Новая страница ПОСЛЕ репагинации: $newCurrentPage из ${paginationResult.pages.size}")
-        // Timber.d("   ⚠️ НЕ сохраняем страницу при репагинации!")
-        
         uiState = uiState.copy(
             paginationResult = paginationResult,
             currentPage = newCurrentPage,
             totalPages = paginationResult.pages.size
         )
-        
-        // НЕ сохраняем страницу при репагинации, так как это техническая операция
-        // НЕ обновляем lastSavedPage!
     }
 
     private fun saveCurrentPageIfChanged(context: Context, newPage: Int, source: String) {
@@ -314,6 +326,8 @@ class EpubReaderViewModel : ViewModel() {
                 // Timber.d("   - Страница: $newPage (предыдущая: $lastSavedPage)")
                 // Timber.d("   - Индекс символа: $charIndex")
                 CheckpointIndexStore.saveCharIndex(context, currentBoxId, charIndex)
+                CheckpointIndexStore.saveCurrentPage(context, currentBoxId, newPage)
+                CheckpointIndexStore.saveTotalPages(context, currentBoxId, paginationResult.pages.size)
                 lastSavedPage = newPage
                 // Timber.d("✅ lastSavedPage обновлён на: $lastSavedPage")
             } else {
@@ -363,15 +377,12 @@ class EpubReaderViewModel : ViewModel() {
         textStyle: TextStyle
     ) {
         if (currentBoxId.isEmpty() || checkpointIndex !in checkpointIndices) return
-        if (checkpointIndex in foundCheckpointIndices) return // Уже найден
+        if (checkpointIndex in foundCheckpointIndices) return
 
-        // Timber.d("Найден чекпоинт с индексом $checkpointIndex для бокса $currentBoxId")
-
-        // Помечаем как найденный
         foundCheckpointIndices.add(checkpointIndex)
         CheckpointIndexStore.markIndexAsFound(context, currentBoxId, checkpointIndex)
+        foundCheckpointIndicesState = foundCheckpointIndices.toSet()
 
-        // Пересобираем текст с обновленным состоянием чекпоинтов
         val elements = cachedElements ?: return
 
         val currentResult = uiState.paginationResult
@@ -379,10 +390,12 @@ class EpubReaderViewModel : ViewModel() {
             currentResult.pages[uiState.currentPage].startIndex
         } else 0
 
+        val effectiveStyle = cachedHyphenatedStyle ?: applyHyphenation(textStyle, uiState.bookLanguage)
+
         val paginationResult = paginationEngine.paginate(
             elements = elements,
             textMeasurer = textMeasurer,
-            textStyle = textStyle,
+            textStyle = effectiveStyle,
             pageWidth = lastPageWidth,
             pageHeight = lastPageHeight,
             checkpointIndices = checkpointIndices,
@@ -399,16 +412,16 @@ class EpubReaderViewModel : ViewModel() {
             currentPage = newCurrentPage,
             totalPages = paginationResult.pages.size
         )
-        
-        // НЕ сохраняем страницу при клике на чекпоинт, так как это техническая операция
     }
 
     fun goToHome(context: Context) {
-        // Сохраняем текущую страницу перед выходом
         saveCurrentPageIfChanged(context, uiState.currentPage, "goToHome")
         cachedElements = null
+        cachedHyphenatedStyle = null
         imageMap = emptyMap()
         foundCheckpointIndices.clear()
+        foundCheckpointIndicesState = emptySet()
+        checkpointIndicesState = emptyList()
         currentBoxId = ""
         lastSavedPage = -1
         uiState = EpubReaderUiState()
@@ -421,6 +434,7 @@ data class EpubReaderUiState(
     val currentPage: Int = 0,
     val totalPages: Int = 0,
     val error: String? = null,
-    val images: Map<String, ByteArray> = emptyMap()
+    val images: Map<String, ByteArray> = emptyMap(),
+    val bookLanguage: String? = null
 )
 

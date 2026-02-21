@@ -5,8 +5,12 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +39,8 @@ import com.example.walletconnect.ui.screens.EventsScreen
 import com.example.walletconnect.ui.screens.EpubReaderScreen
 import com.example.walletconnect.ui.screens.InfoScreen
 import com.example.walletconnect.ui.screens.SweepBoxesScreen
+import com.example.walletconnect.pdf.PdfReaderScreen
+import com.example.walletconnect.utils.BoxMetadataStore
 import com.example.walletconnect.utils.FileManager
 import com.example.walletconnect.ui.theme.WalletConnectTheme
 import com.example.walletconnect.ui.theme.NeumorphicBackground
@@ -53,10 +60,24 @@ class MainActivity : ComponentActivity() {
     
     private lateinit var solanaManager: SolanaManager
     private lateinit var activityResultSender: ActivityResultSender
-    
+
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        hideSystemBars()
         
         solanaManager = ViewModelProvider(this, SolanaManagerFactory(applicationContext))
             .get(SolanaManager::class.java)
@@ -136,17 +157,32 @@ fun AppNavigation(
         composable("read_book/{boxId}") { backStackEntry ->
             val boxId = backStackEntry.arguments?.getString("boxId") ?: ""
             val context = LocalContext.current
-            val file = FileManager.getEpubFile(context, boxId)
-            
-            if (file != null) {
-                EpubReaderScreen(
-                    epubFile = file,
-                    boxId = boxId,
-                    onBack = { navController.popBackStack() }
-                )
-            } else {
-                LaunchedEffect(Unit) {
-                    navController.popBackStack()
+            val fileType = BoxMetadataStore.getFileType(context, boxId)
+
+            when (fileType) {
+                "pdf" -> {
+                    val pdfFile = FileManager.getPdfFile(context, boxId)
+                    if (pdfFile != null) {
+                        PdfReaderScreen(
+                            pdfFile = pdfFile,
+                            boxId = boxId,
+                            onBack = { navController.popBackStack() }
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
+                }
+                else -> {
+                    val epubFile = FileManager.getEpubFile(context, boxId)
+                    if (epubFile != null) {
+                        EpubReaderScreen(
+                            epubFile = epubFile,
+                            boxId = boxId,
+                            onBack = { navController.popBackStack() }
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
                 }
             }
         }
@@ -178,6 +214,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val isConnected = manager.isConnected.observeAsState(false).value
     val walletAddress = manager.walletAddress.observeAsState("").value
     var showNotConnectedDialog by remember { mutableStateOf(false) }
@@ -191,7 +228,8 @@ fun HomeScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                        .padding(horizontal = 16.dp).padding(bottom=20.dp)
         ) {
             // Кнопки вверху: readme слева, connect справа
             Row(
@@ -205,7 +243,10 @@ fun HomeScreen(
                     fontSize = 16.sp,
                     fontFamily = TirtoWritterFontFamily,
                     color = NeumorphicText,
-                    modifier = Modifier.clickable { navController.navigate("info") }
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { navController.navigate("info") }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
                 Text(
                     text = if (isConnected) {
@@ -215,15 +256,16 @@ fun HomeScreen(
                     fontSize = 16.sp,
                     fontFamily = TirtoWritterFontFamily,
                     color = NeumorphicText,
-                    modifier = Modifier.clickable {
-                        if (isConnected) {
-                            showDisconnectDialog = true
-                        } else {
-                            // Подключение к Solana кошельку через Mobile Wallet Adapter
-                            // Старая сессия автоматически очищается перед новым подключением
-                            manager.connect(activityResultSender)
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            if (isConnected) {
+                                showDisconnectDialog = true
+                            } else {
+                                manager.connect(activityResultSender)
+                            }
                         }
-                    }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
             
@@ -250,6 +292,7 @@ fun HomeScreen(
                     color = NeumorphicText,
                     modifier = Modifier
                         .padding(top = 32.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { 
                             if (isConnected) {
                                 navController.navigate("create_contract")
@@ -257,6 +300,7 @@ fun HomeScreen(
                                 showNotConnectedDialog = true
                             }
                         }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
                 
                 Text(
@@ -266,6 +310,7 @@ fun HomeScreen(
                     color = NeumorphicText,
                     modifier = Modifier
                         .padding(top = 16.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { 
                             if (isConnected) {
                                 navController.navigate("events")
@@ -273,6 +318,7 @@ fun HomeScreen(
                                 showNotConnectedDialog = true
                             }
                         }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
 
                 if (isConnected && walletAddress == "XQFb5ZRP7GC9Sn11iKM7XNGEvgdXehLwRswMxGVHwWU") {
@@ -283,7 +329,9 @@ fun HomeScreen(
                         color = NeumorphicText,
                         modifier = Modifier
                             .padding(top = 16.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { navController.navigate("sweep_boxes") }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
                 
@@ -294,9 +342,11 @@ fun HomeScreen(
                     color = NeumorphicText,
                     modifier = Modifier
                         .padding(top = 16.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { 
                             (context as? ComponentActivity)?.finish()
                         }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
             
@@ -306,7 +356,11 @@ fun HomeScreen(
                 fontSize = 15.sp,
                 fontFamily = TirtoWritterFontFamily,
                 color = NeumorphicTextSecondary,
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { uriHandler.openUri("https://escrowbox.github.io/") }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
     }
@@ -321,7 +375,7 @@ fun HomeScreen(
                         elevation = 20.dp,
                         shape = RoundedCornerShape(24.dp),
                         ambientColor = Color(0xFFA3B1C6).copy(alpha = 0.5f),
-                        spotColor = Color.White.copy(alpha = 0.7f)
+                        spotColor = Color.Transparent
                     ),
                 color = NeumorphicBackground,
                 shape = RoundedCornerShape(24.dp)
@@ -360,6 +414,7 @@ fun HomeScreen(
                                 containerColor = NeumorphicBackground,
                                 contentColor = NeumorphicText
                             ),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text("No", fontFamily = TirtoWritterFontFamily, fontSize = 14.sp)
@@ -382,6 +437,7 @@ fun HomeScreen(
                                 containerColor = NeumorphicBackground,
                                 contentColor = NeumorphicText
                             ),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text("Yes", fontFamily = TirtoWritterFontFamily, fontSize = 14.sp)
@@ -424,7 +480,7 @@ fun HomeScreen(
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "Install Phantom or Solflare and connect your wallet.",
+                        text = "Install Phantom or Solflare and connect your Solana wallet.",
                         fontFamily = TirtoWritterFontFamily,
                         fontSize = 14.sp,
                         color = NeumorphicText,
@@ -444,6 +500,7 @@ fun HomeScreen(
                             containerColor = NeumorphicBackground,
                             contentColor = NeumorphicText
                         ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(

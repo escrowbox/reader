@@ -1,14 +1,22 @@
 package com.example.walletconnect.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.walletconnect.SolanaManager
 import com.example.walletconnect.ui.theme.NeumorphicBackground
 import com.example.walletconnect.ui.theme.NeumorphicText
@@ -45,33 +53,51 @@ fun CreateBoxButton(
     // Локальное состояние - была ли нажата кнопка
     var wasClicked by remember { mutableStateOf(false) }
     
-    Button(
-        onClick = {
-            // Проверяем валидность формы
-            if (!isFormValid) {
-                // Показываем модалку с ошибкой
-                onShowValidationError?.invoke()
-                return@Button
-            }
-            
-            // Для token box проверяем mint address
-            if (isTokenBox && mintAddress.isNullOrBlank()) {
-                onShowValidationError?.invoke()
-                return@Button
-            }
-            
-            // Если форма валидна и кнопка еще не была нажата
-            if (!wasClicked) {
+    val accentGradient = Brush.linearGradient(listOf(Color(0xFF1E2D3D), Color(0xFF3D5166)))
+    val disabledGradient = Brush.linearGradient(listOf(Color(0xFFCDD5E2), Color(0xFFCDD5E2)))
+    val glowColor = if (!wasClicked) Color(0xFF1E2D3D).copy(alpha = 0.28f) else Color.Transparent
+
+    Box(
+        modifier = modifier
+            .height(56.dp)
+            .shadow(
+                elevation = if (!wasClicked) 16.dp else 0.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = glowColor,
+                spotColor = Color(0xFF06B6D4).copy(alpha = 0.25f)
+            )
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (!wasClicked) accentGradient else disabledGradient,
+                RoundedCornerShape(16.dp)
+            )
+            .then(
+                if (!wasClicked)
+                    Modifier.border(
+                        1.dp,
+                        Brush.linearGradient(listOf(Color(0x60FFFFFF), Color(0x20FFFFFF))),
+                        RoundedCornerShape(16.dp)
+                    )
+                else
+                    Modifier.border(1.dp, Color(0x20FFFFFF), RoundedCornerShape(16.dp))
+            )
+            .clickable(enabled = !wasClicked) {
+                if (!isFormValid) {
+                    onShowValidationError?.invoke()
+                    return@clickable
+                }
+                if (isTokenBox && mintAddress.isNullOrBlank()) {
+                    onShowValidationError?.invoke()
+                    return@clickable
+                }
                 wasClicked = true
-                
+
                 if (isTokenBox) {
                     Timber.d("🔘 Создание token контракта: id=${id.take(20)}..., deadline=$deadline days, amount=$amount, mint=${mintAddress?.take(20)}...")
                 } else {
                     Timber.d("🔘 Создание SOL контракта: id=${id.take(20)}..., deadline=$deadline days, amount=$amount lamports")
                 }
-                
-                // Сохраняем метаданные токена ДО создания pending контракта,
-                // чтобы PendingContractCard мог правильно отобразить символ и decimals
+
                 if (isTokenBox && !mintAddress.isNullOrBlank()) {
                     BoxMetadataStore.setIsToken(context, id, true)
                     BoxMetadataStore.setMint(context, id, mintAddress)
@@ -79,14 +105,10 @@ fun CreateBoxButton(
                     tokenSymbol?.let { BoxMetadataStore.setSymbol(context, id, it) }
                     Timber.d("💾 Сохранены метаданные токена для pending: decimals=$tokenDecimals, symbol=$tokenSymbol, mint=${mintAddress.take(20)}...")
                 }
-                
-                // Сначала добавляем pending контракт синхронно
+
                 contract.addPendingContractSync(id, deadline, amount.toBigInteger())
-                
-                // Вызываем callback для сохранения параметров контракта (checkpoints или timer)
                 onTransactionSent?.invoke()
-                
-                // Отправляем транзакцию через Solana
+
                 if (isTokenBox && !mintAddress.isNullOrBlank()) {
                     contract.sendCreateBoxTokenWithStatus(
                         id = id,
@@ -105,31 +127,15 @@ fun CreateBoxButton(
                         sender = activityResultSender
                     )
                 }
-            }
-        },
-        enabled = !wasClicked, // Кнопка неактивна только после нажатия
-        modifier = modifier
-            .height(56.dp)
-            .wrapContentWidth()
-            .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(12.dp),
-                ambientColor = Color(0xFFA3B1C6).copy(alpha = 0.4f),
-                spotColor = Color.White.copy(alpha = 0.6f)
-            ),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Color.Black,
-            contentColor = Color.White,
-            disabledContainerColor = Color(0xFFDCDCDC),
-            disabledContentColor = Color.Black
-        ),
-        shape = RoundedCornerShape(12.dp)
+            },
+        contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "Create contract",
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontSize = MaterialTheme.typography.labelLarge.fontSize * 1.2
-            )
+            text = if (wasClicked) "Sent…" else "Create contract",
+            color = if (!wasClicked) Color.White else Color(0xFF94A3B8),
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            letterSpacing = 0.5.sp
         )
     }
 }

@@ -31,7 +31,9 @@ import com.example.walletconnect.ui.theme.NeumorphicText
 import com.example.walletconnect.ui.theme.NeumorphicTextSecondary
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 
 private enum class InfoLang { EN, RU }
 
@@ -54,19 +56,23 @@ fun InfoScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(
-                            elevation = 4.dp,
-                            ambientColor = Color(0xFFA3B1C6).copy(alpha = 0.3f),
-                            spotColor = Color.White.copy(alpha = 0.5f)
-                        ),
+                    modifier = Modifier.fillMaxWidth(),
                     color = NeumorphicBackground,
                     shadowElevation = 0.dp
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                            .drawBehind {
+                                val strokeWidth = 3.dp.toPx()
+                                drawLine(
+                                    color = NeumorphicTextSecondary.copy(alpha = 0.9f),
+                                    start = Offset(0f, size.height),
+                                    end = Offset(size.width, size.height),
+                                    strokeWidth = strokeWidth
+                                )
+                            }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Text(
@@ -106,16 +112,16 @@ fun InfoScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .padding(horizontal = 16.dp)
-                    .padding(top = 16.dp, bottom = 0.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 16.dp, bottom = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
 
                 
                 Text(
                     text = when (infoLang) {
-                        InfoLang.EN -> "Escrow Reader is a Solana dApp that gives reading real meaning."
-                        InfoLang.RU -> "Escrow Reader — это Solana dApp, которое наделяет чтение настоящим смыслом."
+                        InfoLang.EN -> "Escrow Reader is an application that makes reading an interesting activity."
+                        InfoLang.RU -> "Escrow Reader — это приложение, которое делает чтение интересным занятием."
                     },
                     fontSize = 14.sp,
                     color = NeumorphicTextSecondary
@@ -153,7 +159,7 @@ fun InfoScreen(
                 Text(
                     text = when (infoLang) {
                         InfoLang.EN -> "The application offers two reading modes to choose from: checkpoint detection and timer reset."
-                        InfoLang.RU -> "Приложении предлагает на выбор, два режима чтения: поиск чекпоинтов и обнуление таймера."
+                        InfoLang.RU -> "Приложение предлагает на выбор, два режима чтения: поиск чекпоинтов и обнуление таймера."
                     },
                     fontSize = 14.sp,
                     color = NeumorphicTextSecondary
@@ -195,15 +201,15 @@ fun InfoScreen(
                 
                 Text(
                     text = when (infoLang) {
-                        InfoLang.EN -> "You choose a book and set the number of hours you plan to spend on it. Once you start flipping through the pages, the timer begins. When you stop flipping, the timer pauses. Reading is not required, but you must reset the timer before the deadline. If you fail to do so, you will lose your deposit."
-                        InfoLang.RU -> "Вы выбираете книгу и определяете количество часов, которое хотите на нее потратить. Когда вы начинаете листать страницы, запускается таймер. Когда перестаете листать, таймер останавливается. Читать не обязательно, но до наступления дедлайна, вы должны обнулить таймер. Если не успеете — потеряете свой депозит."
+                        InfoLang.EN -> "You choose a book and set the number of hours you plan to spend on it. Once you start flipping through the pages, the timer begins. If you haven't turned the page for more than 5 minutes, the timer pauses. Reading is not required, but you must reset the timer before the deadline. If you fail to do so, you will lose your deposit."
+                        InfoLang.RU -> "Вы выбираете книгу и определяете количество часов, которое хотите на нее потратить. Когда вы начинаете листать страницы, запускается таймер. Если Вы не перелистывали страницу дольше 5 минут, таймер приостанавливается, пока вы не продолжите. Читать не обязательно, но до наступления дедлайна, вы должны обнулить таймер. Если не успеете — потеряете свой депозит."
                     },
                     
                     fontSize = 14.sp,
                     color = NeumorphicTextSecondary
                 )
                 
-
+               
                 
 
                 Text(
@@ -239,19 +245,21 @@ fun InfoScreen(
 
                 
                 val uriHandler = LocalUriHandler.current
-                val contractUrl = "https://github.com/escrowbox/reader/contract"
+                val contractUrl = "https://github.com/escrowbox/reader/tree/main/contract"
                 val appUrl = "https://github.com/escrowbox/reader"
-                val linkStyle = SpanStyle(
-                    color = Color(0xFFDEB887)
-                )
                 val contractLinkText = when (infoLang) {
-                    InfoLang.EN -> "contract code on Github"
-                    InfoLang.RU -> "код контракта на Github"
+                    InfoLang.EN -> "contract code"
+                    InfoLang.RU -> "код контракта"
                 }
                 val appLinkText = when (infoLang) {
-                    InfoLang.EN -> "app code on Github"
-                    InfoLang.RU -> "код приложения на Github"
+                    InfoLang.EN -> "app code"
+                    InfoLang.RU -> "код приложения"
                 }
+                val linkStyle = SpanStyle(
+                    color = NeumorphicText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
                 val contractAnnotated = buildAnnotatedString {
                     pushStringAnnotation(tag = "URL", annotation = contractUrl)
                     pushStyle(linkStyle)
@@ -266,15 +274,15 @@ fun InfoScreen(
                     pop()
                     pop()
                 }
-                val baseTextStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = TirtoWritterFontFamily,
-                    fontSize = 14.sp,
-                    color = NeumorphicTextSecondary
-                )
                 ClickableText(
                     text = contractAnnotated,
                     modifier = Modifier.padding(bottom = 10.dp),
-                    style = baseTextStyle,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontFamily = TirtoWritterFontFamily,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NeumorphicText
+                    ),
                     onClick = { offset ->
                         contractAnnotated.getStringAnnotations(
                             tag = "URL",
@@ -286,7 +294,11 @@ fun InfoScreen(
                 ClickableText(
                     text = appAnnotated,
                     modifier = Modifier.padding(bottom = 40.dp),
-                    style = baseTextStyle,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontFamily = TirtoWritterFontFamily,
+                        fontSize = 16.sp,
+                        color = NeumorphicText
+                    ),
                     onClick = { offset ->
                         appAnnotated.getStringAnnotations(
                             tag = "URL",

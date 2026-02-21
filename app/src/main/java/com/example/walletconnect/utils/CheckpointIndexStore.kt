@@ -18,6 +18,7 @@ object CheckpointIndexStore {
     private const val LABEL_SUFFIX = "_label"
     private const val PAGE_SUFFIX = "_current_page"
     private const val CHAR_INDEX_SUFFIX = "_char_index"
+    private const val TOTAL_PAGES_SUFFIX = "_total_pages"
 
     // КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ: Кешируем SharedPreferences
     // Без кеша каждое обращение создает новый MasterKey → обращение к Android Keystore → лаги!
@@ -215,6 +216,34 @@ object CheckpointIndexStore {
             // Timber.d("✅ CheckpointIndexStore: Сохранён индекс символа для бокса $boxId: $charIndex (было: $oldIndex)")
         } catch (e: Exception) {
             Timber.e(e, "Ошибка сохранения индекса символа для бокса $boxId")
+        }
+    }
+
+    /**
+     * Сохраняет общее количество страниц для конкретного boxId.
+     */
+    fun saveTotalPages(context: Context, boxId: String, totalPages: Int) {
+        if (totalPages <= 0) return
+        try {
+            getSecurePrefs(context)
+                .edit()
+                .putInt(boxId.lowercase() + TOTAL_PAGES_SUFFIX, totalPages)
+                .apply()
+        } catch (e: Exception) {
+            Timber.e(e, "Ошибка сохранения totalPages для бокса $boxId")
+        }
+    }
+
+    /**
+     * Возвращает сохранённое количество страниц для boxId или 0 если неизвестно.
+     */
+    fun getTotalPages(context: Context, boxId: String): Int {
+        return try {
+            getSecurePrefs(context)
+                .getInt(boxId.lowercase() + TOTAL_PAGES_SUFFIX, 0)
+        } catch (e: Exception) {
+            Timber.e(e, "Ошибка чтения totalPages для бокса $boxId")
+            0
         }
     }
 
